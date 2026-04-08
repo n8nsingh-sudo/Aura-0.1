@@ -102,4 +102,4 @@ MIT License
 
 ## Contributing
 
-Contributions welcome! Please open an issue or submit a PR.
+Contributions welcome! Please open an issue or submit a PR.# Aura-0.1
