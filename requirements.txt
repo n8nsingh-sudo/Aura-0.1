@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+httpx
+whisper
+edge-tts
+beautifulsoup4
+wikipedia
+pygame

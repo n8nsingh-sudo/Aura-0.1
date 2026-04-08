@@ -1,0 +1,33 @@
+import os
+from pathlib import Path
+
+BASE_DIR = Path(__file__).parent
+
+DATA_DIR = BASE_DIR / "data"
+MEMORY_DB_PATH = DATA_DIR / "memory.db"
+VECTORS_DIR = DATA_DIR / "vectors"
+LOGS_DIR = DATA_DIR / "logs"
+
+DATA_DIR.mkdir(exist_ok=True)
+VECTORS_DIR.mkdir(exist_ok=True)
+LOGS_DIR.mkdir(exist_ok=True)
+
+LOCAL_MODEL = "qwen2.5-coder:14b"
+LOCAL_MODEL_URL = "http://localhost:11434"
+
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+
+WORKING_MEMORY_MAX_ITEMS = 50
+EPISODIC_MEMORY_MAX_DAYS = 90
+LONG_TERM_TTL_DAYS = -1
+
+MAX_TOKENS_PER_REQUEST = 4000
+MAX_REQUESTS_PER_MINUTE = 30
+MAX_EXECUTION_TIME_SECONDS = 30
+MAX_COST_PER_DAY_USD = 5.0
+
+GITHUB_ACCESS_TOKEN = os.getenv("GITHUB_TOKEN", "")
+MAX_REPO_SIZE_MB = 50
+
+LOG_LEVEL = "INFO"
