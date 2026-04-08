@@ -5,7 +5,10 @@ import edge_tts
 import tempfile
 import os
 import platform
+import subprocess
+import signal
 import re
+from aura import config
 
 
 LANGUAGE_VOICES = {
@@ -63,17 +66,42 @@ def detect_language(text: str) -> str:
 
 class VoiceInterface:
     def __init__(
-        self, model: str = "base", english: bool = False, wake_word: str = "aura"
+        self,
+        model: str = "base",
+        english: bool = False,
+        wake_word: str = "aura",
+        tts_only: bool = False,
     ):
         self.model = model
         self.english = english
         self.default_voice = "en-US-AriaNeural"
-        self.rate = "+0%"
-        self.pitch = "+0Hz"
+        # Use config settings for voice style
+        if config.VOICE_STYLE == "jarvis":
+            self.rate = "+20%"
+            self.pitch = "-10Hz"
+        else:
+            self.rate = config.VOICE_RATE
+            self.pitch = config.VOICE_PITCH
         self.platform = platform.system()
         self.wake_word = wake_word.lower()
         self.is_listening = False
         self._mic = None
+        self._playback_proc = None  # Tracking current speech process
+        self._current_process = None  # For speech cancellation
+
+        # Only load Whisper mic if not TTS-only mode
+        if not tts_only:
+            try:
+                self._mic = whisper_mic.WhisperMic(model=model, english=english)
+                print(
+                    f"✓ Voice: Whisper mic ready (model: {model}, multilingual: {not english})"
+                )
+            except Exception as e:
+                print(f"⚠ Voice: Mic error: {e}")
+        else:
+            print(f"✓ Voice: TTS-only mode (no mic)")
+
+        print(f"✓ Voice TTS ready ({config.VOICE_STYLE} style)")
 
         try:
             self._mic = whisper_mic.WhisperMic(model=model, english=english)
@@ -85,20 +113,64 @@ class VoiceInterface:
 
         print(f"✓ Voice TTS ready")
 
+    def stop_speaking(self):
+        """Stop the current audio playback immediately."""
+        # Stop _playback_proc
+        if self._playback_proc:
+            try:
+                if self.platform == "Windows":
+                    self._playback_proc.kill()
+                else:
+                    os.kill(self._playback_proc.pid, signal.SIGTERM)
+                self._playback_proc = None
+            except:
+                pass
+        # Stop _current_process
+        if self._current_process:
+            try:
+                if self.platform == "Windows":
+                    self._current_process.kill()
+                else:
+                    os.kill(self._current_process.pid, signal.SIGTERM)
+                self._current_process = None
+            except:
+                pass
+
     def speak(self, text: str, play: bool = True, language: str = None) -> str:
+        """Speak text using edge-tts. Handled safely for running event loops."""
         if language is None:
             language = detect_language(text)
 
         voice = LANGUAGE_VOICES.get(language, self.default_voice)
 
-        temp_path = asyncio.run(self._speak_async(text, voice))
+        # Handle asyncio safely
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            # If we're already in a loop, we run the coroutine in that loop
+            # This avoids the "asyncio.run() cannot be called" error
+            temp_path = asyncio.run_coroutine_threadsafe(
+                self._speak_async(text, voice), loop
+            ).result()
+        else:
+            temp_path = asyncio.run(self._speak_async(text, voice))
 
         if play:
+            self.stop_speaking()  # Stop previous speech before playing new
             try:
+                cmd = []
                 if self.platform == "Darwin":
-                    os.system(f"afplay '{temp_path}' &")
+                    cmd = ["afplay", temp_path]
                 elif self.platform == "Linux":
-                    os.system(f"mpg321 '{temp_path}' &")
+                    cmd = ["mpg321", temp_path]
+
+                if cmd:
+                    self._playback_proc = subprocess.Popen(
+                        cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                    )
             except Exception as e:
                 print(f"Playback error: {e}")
 

@@ -31,3 +31,8 @@ GITHUB_ACCESS_TOKEN = os.getenv("GITHUB_TOKEN", "")
 MAX_REPO_SIZE_MB = 50
 
 LOG_LEVEL = "INFO"
+
+# Voice settings
+VOICE_STYLE = "neural"  # "neural" = natural voice, "jarvis" = robotic style
+VOICE_RATE = "+15%"
+VOICE_PITCH = "-5Hz"

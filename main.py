@@ -20,15 +20,25 @@ def cleanup_port(port=8080):
     """Cleanup any existing processes on the dashboard port to avoid zombies."""
     try:
         if sys.platform != "win32":
-            # Command to find and kill the process on given port
             cmd = f"lsof -ti:{port} | xargs kill -9 2>/dev/null"
             subprocess.run(cmd, shell=True)
-            time.sleep(1)  # Give it a second to release the port
+            time.sleep(1)
     except Exception:
         pass
 
 
+def signal_handler(signum, frame):
+    """Handle SIGTERM for clean shutdown."""
+    print("\n⚠️ Received shutdown signal, cleaning up...")
+    cleanup_port(8080)
+    sys.exit(0)
+
+
 def main():
+    # Register signal handlers for clean shutdown
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+
     # Pre-start cleanup to avoid zombies
     cleanup_port(8080)
 
@@ -44,7 +54,8 @@ def main():
     goals = GoalEngine(router, memory)
     ingestor = UniversalIngestor(memory, embedder)
     tools = ToolRegistry()
-    voice = VoiceInterface()
+    # Use TTS-only mode to skip Whisper mic loading (browser handles voice)
+    voice = VoiceInterface(tts_only=True)
     executor = CodeExecutor(router)
     print("✅ All components ready")
 

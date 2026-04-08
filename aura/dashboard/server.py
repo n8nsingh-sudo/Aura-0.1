@@ -183,6 +183,7 @@ HTML_PAGE = """
 
         /* The AURA Ring */
         .aura-core {
+            --ring-glow: rgba(0, 247, 255, 0.3);
             position: relative;
             width: clamp(200px, 30vh, 300px);
             height: clamp(200px, 30vh, 300px);
@@ -277,6 +278,19 @@ HTML_PAGE = """
             animation: core-thinking-pulse 2s ease-in-out infinite;
             background: radial-gradient(circle, var(--secondary) 0%, transparent 70%);
         }
+        
+        .aura-core.speaking .ring-1 { animation: rotate 1s linear infinite; border-color: #00ff88; box-shadow: 0 0 20px #00ff88; }
+        .aura-core.speaking .ring-2 { animation: rotate 0.8s linear infinite reverse; border-color: #00ff88; box-shadow: 0 0 20px #00ff88; }
+        .aura-core.speaking .ring-3 { animation: rotate 1.2s linear infinite; border-color: #00ff88; opacity: 0.8; }
+        .aura-core.speaking .core-center { 
+            animation: core-speaking-pulse 0.5s ease-in-out infinite;
+            background: radial-gradient(circle, #00ff88 0%, transparent 70%);
+        }
+
+        @keyframes core-speaking-pulse {
+            0%, 100% { transform: translate(-50%, -50%) scale(0.9); }
+            50% { transform: translate(-50%, -50%) scale(1.1); }
+        }
 
         @keyframes core-thinking-pulse {
             0%, 100% { transform: translate(-50%, -50%) scale(0.95); opacity: 0.7; }
@@ -370,16 +384,6 @@ HTML_PAGE = """
             font-size: 0.7rem;
             color: #666;
             margin-top: 5px;
-        }
-
-        .chat-input-container {
-            padding: 20px;
-            border-top: 1px solid rgba(0, 247, 255, 0.1);
-            display: flex;
-            gap: 10px;
-            flex-shrink: 0;
-            background: var(--bg-panel);
-            z-index: 10;
         }
 
         .chat-input {
@@ -767,12 +771,52 @@ HTML_PAGE = """
         function connect() {
             ws = new WebSocket('ws://' + location.host + '/ws');
             
+            let pongReceived = true;
+            let pingInterval;
+            let reconnectAttempts = 0;
+            const MAX_RECONNECT = 2;
+            
             ws.onmessage = function(event) {
                 const data = JSON.parse(event.data);
+                if (data.type === 'pong') {
+                    pongReceived = true;
+                    reconnectAttempts = 0;
+                }
                 handleMessage(data);
             };
             
+            ws.onerror = function(error) {
+                console.error("WebSocket error:", error);
+                const core = document.getElementById('auraCore');
+                core.classList.remove('thinking');
+                ws.close();
+            };
+            
+            ws.onopen = function() {
+                pongReceived = true;
+                reconnectAttempts = 0;
+                // Start heartbeat - ping every 15 seconds
+                pingInterval = setInterval(() => {
+                    if (ws.readyState === WebSocket.OPEN) {
+                        pongReceived = false;
+                        ws.send(JSON.stringify({type: 'ping'}));
+                        // If no pong for 15s (one heartbeat), reconnect
+                        setTimeout(() => {
+                            if (!pongReceived) {
+                                reconnectAttempts++;
+                                console.log("No pong received, attempt:", reconnectAttempts);
+                                if (reconnectAttempts >= MAX_RECONNECT) {
+                                    console.log("Heartbeat failed, reconnecting...");
+                                    ws.close();
+                                }
+                            }
+                        }, 15000);
+                    }
+                }, 15000);
+            };
+            
             ws.onclose = function() {
+                clearInterval(pingInterval);
                 setTimeout(connect, 3000);
             };
         }
@@ -781,12 +825,15 @@ HTML_PAGE = """
             const core = document.getElementById('auraCore');
             if (data.type === 'response') {
                 core.classList.remove('thinking');
+                core.classList.add('speaking');
                 addMessage(data.content, 'aura');
                 speakText(data.content);
             } else if (data.type === 'status') {
                 updateStatus(data.data);
             } else if (data.type === 'voice') {
                 showVoiceIndicator(data.active);
+            } else if (data.type === 'speaking_done') {
+                core.classList.remove('speaking');
             }
         }
 
@@ -808,7 +855,10 @@ HTML_PAGE = """
             div.className = `message ${sender}`;
             div.innerHTML = `${text}<div class="time">${new Date().toLocaleTimeString()}</div>`;
             container.appendChild(div);
-            container.scrollTop = container.scrollHeight;
+            // Use requestAnimationFrame to ensure scroll happens after DOM paint
+            requestAnimationFrame(() => {
+                container.scrollTop = container.scrollHeight;
+            });
         }
 
         function sendMessage() {
@@ -825,6 +875,9 @@ HTML_PAGE = """
             
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({type: 'message', content: text}));
+            } else {
+                // Connection not open - remove thinking state
+                core.classList.remove('thinking');
             }
         }
 
@@ -835,195 +888,78 @@ HTML_PAGE = """
         let recognition = null;
         let isListening = false;
         let wakeWordDetected = false;
+        let isSpeaking = false;
+        let audioContext = null;
+        let analyser = null;
+        let micStream = null;
         const WAKE_WORD = "aura";
         
-        function toggleMic() {
-            const btn = document.getElementById('micBtn');
+        // Web Audio API for mic visualization
+        function startAudioVisualization() {
+            if (audioContext) return;
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 256;
             
-            console.log("Toggle mic clicked, isListening:", isListening);
-            
-            if (!isListening) {
-                // Check for SpeechRecognition API
-                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-                if (!SpeechRecognition) {
-                    document.getElementById('voicePrompt').innerHTML = '⚠️ Voice not supported. Use Chrome/Edge.';
-                    alert("Your browser doesn't support voice recognition. Please use Chrome or Edge.");
-                    return;
-                }
-                
-                // Create recognition instance
-                if (!recognition) {
-                    recognition = new SpeechRecognition();
-                    recognition.continuous = true;
-                    recognition.interimResults = true;
-                    recognition.lang = 'en-US';
-                    
-                    recognition.onresult = function(event) {
-                        let finalTranscript = '';
-                        let interimTranscript = '';
-                        
-                        for (let i = event.resultIndex; i < event.results.length; i++) {
-                            if (event.results[i].isFinal) {
-                                finalTranscript += event.results[i][0].transcript;
-                            } else {
-                                interimTranscript += event.results[i][0].transcript;
-                            }
-                        }
-                        
-                        const transcript = (finalTranscript || interimTranscript).trim().toLowerCase();
-                        console.log("Heard:", transcript);
-                        
-                        if (!wakeWordDetected && transcript.includes(WAKE_WORD)) {
-                            wakeWordDetected = true;
-                            document.getElementById('voicePrompt').innerHTML = '🎤 AURA activated! Speak now...';
-                            document.getElementById('auraCore').classList.add('listening');
-                            document.getElementById('voiceWave').style.visibility = 'visible';
-                            
-                            if (ws && ws.readyState === WebSocket.OPEN) {
-                                ws.send(JSON.stringify({type: 'speak', content: "Yes, I'm listening"}));
-                            }
-                            
-                            setTimeout(() => { wakeWordDetected = false; }, 5000);
-                            return;
-                        }
-                        
-                        if (wakeWordDetected && finalTranscript) {
-                            const command = finalTranscript.toLowerCase().replace(WAKE_WORD, '').trim();
-                            if (command) {
-                                document.getElementById('chatInput').value = command;
-                                sendMessage();
-                            }
-                            
-                            wakeWordDetected = false;
-                            document.getElementById('voicePrompt').innerHTML = '🎤 Say "AURA" to activate';
-                            document.getElementById('auraCore').classList.remove('listening');
-                            document.getElementById('voiceWave').style.visibility = 'hidden';
-                        }
-                    };
-                    
-                    recognition.onerror = function(event) {
-                        console.error("Speech error:", event.error);
-                        if (event.error === 'not-allowed') {
-                            document.getElementById('voicePrompt').innerHTML = '⚠️ Mic blocked - check permissions';
-                        } else if (event.error !== 'aborted') {
-                            document.getElementById('voicePrompt').innerHTML = '⚠️ Error: ' + event.error;
-                        }
-                    };
-                    
-                    recognition.onend = function() {
-                        console.log("Speech recognition ended");
-                        if (isListening && recognition) {
-                            try { recognition.start(); } catch(e) { 
-                                console.log("Restart failed:", e); 
-                            }
-                        }
-                    };
-                }
-                
-                try {
-                    recognition.start();
-                    isListening = true;
-                    btn.classList.add('listening');
-                    document.getElementById('voicePrompt').innerHTML = '🎤 Listening for "AURA"...';
-                    document.getElementById('voiceWave').style.display = 'flex';
-                } catch (err) {
-                    console.error("Start error:", err);
-                    document.getElementById('voicePrompt').innerHTML = '⚠️ Click again to enable';
-                }
-            } else {
-                if (recognition) {
-                    recognition.stop();
-                }
-                isListening = false;
-                btn.classList.remove('listening');
-                document.getElementById('voicePrompt').innerHTML = '🎤 Click mic to start';
-                document.getElementById('voiceWave').style.display = 'none';
-            }
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(stream => {
+                    micStream = audioContext.createMediaStreamSource(stream);
+                    micStream.connect(analyser);
+                    visualize();
+                })
+                .catch(err => console.log("Mic visualization denied:", err));
         }
+        
+        function visualize() {
+            if (!isListening || !analyser) return;
             
-            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            const rec = new SpeechRecognition();
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            analyser.getByteFrequencyData(dataArray);
             
-            rec.continuous = true;
-            rec.interimResults = true;
-            rec.lang = 'en-US';
+            // Calculate RMS volume
+            let sum = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+                sum += dataArray[i] * dataArray[i];
+            }
+            const rms = Math.sqrt(sum / dataArray.length);
+            const volume = Math.min(rms / 128, 1);
             
-            rec.onresult = function(event) {
-                let interimTranscript = '';
-                let finalTranscript = '';
-                
-                for (let i = event.resultIndex; i < event.results.length; i++) {
-                    if (event.results[i].isFinal) {
-                        finalTranscript += event.results[i][0].transcript;
-                    } else {
-                        interimTranscript += event.results[i][0].transcript;
-                    }
-                }
-                
-                const transcript = (finalTranscript || interimTranscript).trim().toLowerCase();
-                console.log("Heard:", transcript);
-                
-                if (!wakeWordDetected && transcript.includes(WAKE_WORD)) {
-                    wakeWordDetected = true;
-                    document.getElementById('voiceStatus').innerHTML = '🎤 AURA activated! Speak now...';
-                    document.getElementById('voiceStatus').classList.add('active');
-                    document.getElementById('voiceWave').style.display = 'flex';
-                    
-                    if (ws && ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({type: 'speak', content: "Yes, I'm listening"}));
-                    }
-                    
-                    setTimeout(() => { wakeWordDetected = false; }, 5000);
-                    return;
-                }
-                
-                if (wakeWordDetected && finalTranscript) {
-                    const command = finalTranscript.toLowerCase().replace(WAKE_WORD, '').trim();
-                    if (command) {
-                        document.getElementById('chatInput').value = command;
-                        sendMessage();
-                    }
-                    
-                    wakeWordDetected = false;
-                    document.getElementById('voiceStatus').innerHTML = '🎤 Say "AURA" to activate';
-                    document.getElementById('voiceStatus').classList.remove('active');
-                    document.getElementById('voiceWave').style.display = 'none';
-                }
-            };
+            // Apply to rings - box-shadow intensity and rotation speed
+            const core = document.getElementById('auraCore');
+            const intensity = Math.floor(volume * 30);
+            const speed = 2 - volume * 1.5; // Faster when louder
             
-            rec.onerror = function(event) {
-                console.error("Speech error:", event.error);
-                document.getElementById('voiceStatus').innerHTML = '⚠️ Mic error: ' + event.error;
-                isListening = false;
-                document.getElementById('micBtn').classList.remove('listening');
-            };
+            core.style.setProperty('--ring-glow', `rgba(0, 247, 255, ${volume * 0.5})`);
+            core.style.animationDuration = `${speed}s`;
             
-            rec.onend = function() {
-                console.log("Speech recognition ended");
-                if (isListening) {
-                    try { rec.start(); } catch(e) { console.log("Restart failed:", e); }
-                }
-            };
-            
-            return rec;
+            requestAnimationFrame(visualize);
+        }
+        
+        function stopAudioVisualization() {
+            if (micStream) {
+                micStream.getTracks().forEach(t => t.stop());
+                micStream = null;
+            }
+            if (audioContext) {
+                audioContext.close();
+                audioContext = null;
+                analyser = null;
+            }
         }
         
         function toggleMic() {
             const btn = document.getElementById('micBtn');
-            const status = document.getElementById('voiceStatus');
-            
-            console.log("Toggle mic clicked, isListening:", isListening);
+            const status = document.getElementById('voicePrompt');
+            const core = document.getElementById('auraCore');
+            const wave = document.getElementById('voiceWave');
             
             if (!isListening) {
-                // Check for SpeechRecognition API
                 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
                 if (!SpeechRecognition) {
-                    status.innerHTML = '⚠️ Voice not supported. Use Chrome/Edge.';
-                    alert("Your browser doesn't support voice recognition. Please use Chrome or Edge.");
+                    status.innerHTML = '⚠️ Voice not supported.';
                     return;
                 }
                 
-                // Create recognition instance
                 if (!recognition) {
                     recognition = new SpeechRecognition();
                     recognition.continuous = true;
@@ -1033,28 +969,31 @@ HTML_PAGE = """
                     recognition.onresult = function(event) {
                         let finalTranscript = '';
                         let interimTranscript = '';
-                        
                         for (let i = event.resultIndex; i < event.results.length; i++) {
-                            if (event.results[i].isFinal) {
-                                finalTranscript += event.results[i][0].transcript;
-                            } else {
-                                interimTranscript += event.results[i][0].transcript;
+                            if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript;
+                            else interimTranscript += event.results[i][0].transcript;
+                        }
+                        
+                        // Interruption support - stop speaking if user starts talking
+                        if (isSpeaking && interimTranscript.trim()) {
+                            if (ws && ws.readyState === WebSocket.OPEN) {
+                                ws.send(JSON.stringify({type: 'stop_speech'}));
                             }
+                            isSpeaking = false;
+                            const core = document.getElementById('auraCore');
+                            core.classList.remove('speaking');
                         }
                         
                         const transcript = (finalTranscript || interimTranscript).trim().toLowerCase();
-                        console.log("Heard:", transcript);
-                        
                         if (!wakeWordDetected && transcript.includes(WAKE_WORD)) {
                             wakeWordDetected = true;
-                            status.innerHTML = '🎤 AURA activated! Speak now...';
-                            status.classList.add('active');
-                            document.getElementById('voiceWave').style.display = 'flex';
-                            
+                            status.innerHTML = '🎤 AURA activated!';
+                            core.classList.add('listening');
+                            wave.style.visibility = 'visible';
                             if (ws && ws.readyState === WebSocket.OPEN) {
+                                ws.send(JSON.stringify({type: 'stop_speech'}));
                                 ws.send(JSON.stringify({type: 'speak', content: "Yes, I'm listening"}));
                             }
-                            
                             setTimeout(() => { wakeWordDetected = false; }, 5000);
                             return;
                         }
@@ -1065,73 +1004,54 @@ HTML_PAGE = """
                                 document.getElementById('chatInput').value = command;
                                 sendMessage();
                             }
-                            
                             wakeWordDetected = false;
                             status.innerHTML = '🎤 Say "AURA" to activate';
-                            status.classList.remove('active');
-                            document.getElementById('voiceWave').style.display = 'none';
+                            core.classList.remove('listening');
+                            wave.style.visibility = 'hidden';
                         }
+                    };
+                    
+                    recognition.onend = function() {
+                        if (isListening) try { recognition.start(); } catch(e) {}
                     };
                     
                     recognition.onerror = function(event) {
                         console.error("Speech error:", event.error);
                         if (event.error === 'not-allowed') {
-                            document.getElementById('voicePrompt').innerHTML = '⚠️ Mic blocked - check permissions';
-                        } else if (event.error !== 'aborted') {
-                            document.getElementById('voicePrompt').innerHTML = '⚠️ Error: ' + event.error;
-                        }
-                    };
-                    
-                    recognition.onend = function() {
-                        console.log("Speech recognition ended");
-                        if (isListening && recognition) {
-                            try { recognition.start(); } catch(e) { 
-                                console.log("Restart failed:", e); 
-                            }
+                            // Show mic permission recovery UI
+                            status.innerHTML = `
+                                <div style="text-align:left; padding:10px; background:rgba(255,0,0,0.1); border-radius:8px;">
+                                    <strong>⚠️ Mic blocked</strong>
+                                    <p style="font-size:0.85rem; margin:8px 0;">To enable:</p>
+                                    <ol style="font-size:0.8rem; padding-left:20px; margin:0;">
+                                        <li>Click the lock 🔒 icon in browser address bar</li>
+                                        <li>Click "Microphone" → "Allow"</li>
+                                        <li>Refresh this page</li>
+                                    </ol>
+                                </div>
+                            `;
                         }
                     };
                 }
                 
                 try {
-                    recognition.start();
-                    isListening = true;
-                    btn.classList.add('listening');
-                    document.getElementById('voicePrompt').innerHTML = '🎤 Listening for "AURA"...';
-                    document.getElementById('voiceWave').style.display = 'flex';
-                } catch (err) {
-                    console.error("Start error:", err);
-                    document.getElementById('voicePrompt').innerHTML = '⚠️ Click again to enable';
-                }
-            } else {
-                if (recognition) {
-                    recognition.stop();
-                }
-                isListening = false;
-                btn.classList.remove('listening');
-                document.getElementById('voicePrompt').innerHTML = '🎤 Click mic to start';
-                document.getElementById('voiceWave').style.display = 'none';
-            }
-        }
-                    
                     recognition.start();
                     isListening = true;
                     btn.classList.add('listening');
                     status.innerHTML = '🎤 Listening for "AURA"...';
-                    document.getElementById('voiceWave').style.display = 'flex';
-                } catch (err) {
-                    console.error("Start error:", err);
-                    status.innerHTML = '⚠️ Please click to allow mic access';
-                    alert("Microphone access is required for voice commands. Please click the mic icon and allow permission in your browser.");
-                }
+                    startAudioVisualization();
+                } catch (err) {}
             } else {
-                recognition.stop();
+                if (recognition) recognition.stop();
                 isListening = false;
                 btn.classList.remove('listening');
                 status.innerHTML = '🎤 Click mic to start';
-                document.getElementById('voiceWave').style.display = 'none';
+                core.classList.remove('listening');
+                wave.style.visibility = 'hidden';
+                stopAudioVisualization();
             }
         }
-        
+
         function quickAction(action) {
             const input = document.getElementById('chatInput');
             switch(action) {
@@ -1180,6 +1100,14 @@ HTML_PAGE = """
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({type: 'speak', content: text}));
             }
+            isSpeaking = true;
+            // Remove speaking state after estimated speech time (approx 3 seconds per 100 chars)
+            const estimatedTime = Math.max(2000, text.length * 30);
+            setTimeout(() => {
+                const core = document.getElementById('auraCore');
+                core.classList.remove('speaking');
+                isSpeaking = false;
+            }, estimatedTime);
         }
 
         // Auto-refresh status every 5 seconds
@@ -1227,7 +1155,11 @@ async def websocket_endpoint(websocket: WebSocket):
 
             if message.get("type") == "message":
                 if _aura_loop:
-                    result = _aura_loop.run_once(message["content"])
+                    # Run blocking LLM call in executor to keep event loop free
+                    loop = asyncio.get_event_loop()
+                    result = await loop.run_in_executor(
+                        None, _aura_loop.run_once, message["content"]
+                    )
                     await websocket.send_json(
                         {"type": "response", "content": result[:500]}
                     )
@@ -1245,6 +1177,13 @@ async def websocket_endpoint(websocket: WebSocket):
                             },
                         }
                     )
+
+            elif message.get("type") == "ping":
+                await websocket.send_json({"type": "pong"})
+
+            elif message.get("type") == "stop_speech":
+                if _voice:
+                    _voice.stop_speaking()
 
             elif message.get("type") == "speak":
                 if _voice:
@@ -1289,7 +1228,8 @@ async def websocket_endpoint(websocket: WebSocket):
                     print(f"Audio error: {e}")
 
     except WebSocketDisconnect:
-        _active_connections.remove(websocket)
+        if websocket in _active_connections:
+            _active_connections.remove(websocket)
 
 
 async def broadcast_status():
@@ -1323,8 +1263,9 @@ def start_dashboard(memory, governor, voice=None, aura_loop=None, port=8080):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-    # Add the broadcaster to the loop
-    loop.create_task(broadcast_status())
+    # Start broadcaster using ensure_future after loop is running
+    # This fixes RuntimeError in Python 3.10+ where create_task was called before loop.run()
+    loop.call_soon(lambda: asyncio.ensure_future(broadcast_status()))
 
     # Run the server
     try:
