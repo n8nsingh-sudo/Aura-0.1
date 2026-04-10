@@ -80,3 +80,16 @@ class SemanticMemory:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute("SELECT COUNT(*) FROM knowledge")
             return cursor.fetchone()[0]
+
+    def get_recent(self, limit: int = 50) -> list:
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                """
+                SELECT topic, content, source, confidence, timestamp
+                FROM knowledge
+                ORDER BY timestamp DESC
+                LIMIT ?
+            """,
+                (limit,),
+            )
+            return cursor.fetchall()

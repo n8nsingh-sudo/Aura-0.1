@@ -13,7 +13,7 @@ print("Starting AURA Dashboard...")
 
 memory = MemoryFabric()
 aura = AURALoop(memory)
-voice = VoiceInterface()
+voice = VoiceInterface(tts_only=True)
 
 set_components(memory, aura.governor, voice, aura)
 

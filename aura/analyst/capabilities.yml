@@ -1,0 +1,75 @@
+agent_name: analyst_agent
+display_name: "Senior Business Analyst"
+role: "Requirements Analyst"
+
+capabilities:
+  - action: "create_brd"
+    description: "Create a comprehensive Business Requirements Document (BRD) that captures business objectives, functional requirements, non-functional requirements, assumptions, constraints, and risks"
+
+    examples:
+      - "Create BRD for employee leave management system"
+      - "Generate requirements document for inventory management"
+      - "Write business requirements for e-commerce platform"
+      - "Document the requirements for mobile banking app"
+      - "I need a BRD for the customer portal"
+      - "Create a requirements specification"
+
+  - action: "update_brd"
+    description: "Update, modify, or enhance existing BRD with new requirements, changes, or additional features"
+
+  - action: "analyze_requirements"
+    description: "Analyze and clarify existing business requirements, identify gaps, validate feasibility, and ensure completeness"
+
+    examples:
+      - "Review and clarify these requirements"
+      - "Analyze the feasibility of these features"
+      - "Can you validate these business requirements?"
+      - "Help me understand what's missing in these requirements"
+
+inputs:
+  required: []  # Can work from scratch
+
+  optional:
+    - artifact: "meeting_notes.md"
+      description: "Stakeholder meeting notes"
+    - artifact: "existing_brd.md"
+      description: "Previous BRD to update"
+
+outputs:
+  primary:
+    - artifact: "brd.md"
+      schema: "markdown"
+      template: "templates/brd_template.md"
+
+  secondary: []
+
+lifecycle_states:
+  - "DRAFT"
+  - "REVIEW"
+  - "FINAL"
+
+next_steps_after_completion:
+  - agent: "planner_agent"
+    action: "create_use_cases"
+    reason: "BRD is ready for decomposition into detailed use cases"
+    priority: 1
+
+  - agent: "planner_agent"
+    action: "create_jira_breakdown"
+    reason: "BRD can be broken into Jira epics and stories"
+    priority: 2
+
+  - agent: "analyst_agent"
+    action: "update_brd"
+    reason: "Refine or add features to the BRD before moving forward"
+    priority: 3
+
+  - agent: "testgen_agent"
+    action: "create_test_cases"
+    reason: "High-level test cases can be created from BRD"
+    priority: 4
+
+  - agent: "architect_agent"
+    action: "create_hld"
+    reason: "BRD is finalized — the Architect Agent can now design the High-Level Architecture (HLD) from the requirements."
+    priority: 5

@@ -7,7 +7,7 @@ from aura.learning.sources.universal_ingestor import UniversalIngestor
 from aura.action.code_executor import CodeExecutor
 from aura.action.tool_registry import ToolRegistry
 from aura.action.voice import VoiceInterface
-from aura.dashboard.server import start_dashboard
+from aura.dashboard.server import start_dashboard, set_components
 import threading
 import time
 import sys
@@ -81,55 +81,13 @@ def main():
     print("🌐 AURA Dashboard: http://localhost:8080")
     print("🎤 Say 'AURA' to activate voice")
     print("=" * 60)
-    print("\nCommands:")
-    print("  quit          - Exit")
-    print("  status        - Show stats")
-    print("  goal <text>   - Add a goal")
-    print("  ingest <url>  - Learn from URL")
-    print("  calc <expr>   - Calculate")
-    print("  weather <city> - Get weather")
-    print("  voice <text>  - Speak text")
-    print("-" * 40)
+    print("\nDashboard is running. Press Ctrl+C to stop.")
 
-    while True:
-        try:
-            user_input = input("\n> ").strip()
-
-            if user_input.lower() == "quit":
-                voice.stop_listening()
-                break
-            elif user_input.lower() == "status":
-                print(f"Memory: {memory.get_stats()}")
-                print(f"Governor: {aura.governor.get_status()}")
-                print(f"Goals: {len(goals.goals)} active")
-                print(f"Tools: {len(tools.tools)} available")
-            elif user_input.lower().startswith("goal "):
-                goal_text = user_input[5:]
-                goals.add_goal(goal_text, priority=5)
-                print(f"Goal added: {goal_text}")
-            elif user_input.lower().startswith("ingest "):
-                url = user_input[7:]
-                result = ingestor.ingest(url)
-                print(f"Ingest: {result}")
-            elif user_input.lower().startswith("calc "):
-                expr = user_input[5:]
-                print(tools.call("calculator", expression=expr))
-            elif user_input.lower().startswith("weather "):
-                city = user_input[9:]
-                print(tools.call("get_weather", city=city))
-            elif user_input.lower().startswith("voice "):
-                text = user_input[6:]
-                voice.speak(text)
-            elif user_input.lower() == "tools":
-                print(tools.list_tools())
-            elif user_input:
-                result = aura.run_once(user_input)
-                print(f"\n{result[:300]}...")
-        except KeyboardInterrupt:
-            voice.stop_listening()
-            break
-        except Exception as e:
-            print(f"Error: {e}")
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pass
 
     print("\n👋 AURA shutdown complete")
 

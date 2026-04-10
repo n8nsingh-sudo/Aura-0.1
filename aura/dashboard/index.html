@@ -1,0 +1,227 @@
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse
+import uvicorn
+import asyncio
+import json
+import threading
+
+app = FastAPI(title="AURA Interface")
+
+_memory = None
+_governor = None
+_voice = None
+_aura_loop = None
+_active_connections = []
+
+import whisper
+
+_whisper_model = None
+
+
+def get_whisper_model():
+    global _whisper_model
+    if _whisper_model is None:
+        _whisper_model = whisper.load_model("base")
+    return _whisper_model
+
+
+HTML_PAGE = r"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AURA - Autonomous Intelligence</title>
+    
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #00f7ff;
+            --secondary: #7b2fff;
+            --accent: #ff2d6a;
+            --bg-dark: #0a0a12;
+            --bg-panel: #12121c;
+            --text: #e0e0e0;
+            --glow: rgba(0, 247, 255, 0.5);
+        }
+
+        body {
+            font-family: 'Segoe UI', 'Roboto', sans-serif;
+            background: var(--bg-dark);
+            color: var(--text);
+            min-height: 100vh;
+            overflow-x: hidden;
+            overflow-y: auto;
+        }
+
+        .bg-grid {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(rgba(0, 247, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 247, 255, 0.03) 1px, transparent 1px);
+            background-size: 50px 50px;
+            z-index: -1;
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: clamp(250px, 20vw, 300px) minmax(0, 1fr) clamp(250px, 20vw, 300px);
+            grid-template-rows: auto minmax(0, 1fr);
+            height: 100vh;
+            min-height: 700px;
+            gap: 20px;
+            padding: 20px;
+        }
+
+        header {
+            grid-column: 1 / -1;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 40px;
+            background: var(--bg-panel);
+            border-radius: 20px;
+            border: 1px solid rgba(0, 247, 255, 0.2);
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .logo h1 {
+            font-size: 2rem;
+            font-weight: 300;
+            letter-spacing: 8px;
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: rgba(0, 247, 255, 0.1);
+            border-radius: 20px;
+            border: 1px solid var(--primary);
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            background: var(--primary);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; box-shadow: 0 0 10px var(--primary); }
+            50% { opacity: 0.5; box-shadow: 0 0 20px var(--primary); }
+        }
+
+        .panel {
+            background: var(--bg-panel);
+            border-radius: 20px;
+            border: 1px solid rgba(0, 247, 255, 0.1);
+            padding: 20px;
+            overflow-y: auto;
+            min-height: 0;
+        }
+
+        .panel h2 {
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: var(--primary);
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(0, 247, 255, 0.2);
+        }
+
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px;
+            margin-bottom: 10px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            border-left: 3px solid var(--primary);
+        }
+
+        .stat-label { color: #888; font-size: 0.85rem; }
+        .stat-value { color: var(--primary); font-weight: bold; }
+
+        main {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            position: relative;
+            min-height: 0;
+            height: 100%;
+            width: 100%;
+            padding-top: 20px;
+            overflow: hidden;
+        }
+
+        .aura-core {
+            position: relative;
+            width: clamp(200px, 30vh, 300px);
+            height: clamp(200px, 30vh, 300px);
+            flex-shrink: 0;
+        }
+
+        .core-ring {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            border: 2px solid transparent;
+        }
+
+        .ring-1 {
+            border-top: 3px solid var(--primary);
+            border-bottom: 3px solid var(--secondary);
+            animation: rotate 8s linear infinite;
+        }
+
+        .ring-2 {
+            width: 80%;
+            height: 80%;
+            top: 10%;
+            left: 10%;
+            border-left: 3px solid var(--accent);
+            border-right: 3px solid var(--primary);
+            animation: rotate 6s linear infinite reverse;
+        }
+
+        .ring-3 {
+            width: 60%;
+            height: 60%;
+            top: 20%;
+            left: 20%;
+            border: 2px solid var(--primary);
+            animation: pulse-ring 3s ease-in-out infinite;
+        }
+
+        @keyframes rotate {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        @keyframes pulse-ring {
+            0%, 100% { transform: scale(1); opacity: 0.5; }
+            50% { transform: scale(1.05); opacity: 1; }
+<link rel="stylesheet" href="css/styles.css">
+<script src="js/app.js"></script>

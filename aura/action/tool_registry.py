@@ -4,6 +4,23 @@ import json
 import subprocess
 import urllib.parse
 from pathlib import Path
+from aura.action.system_controller import (
+    open_app,
+    open_url,
+    run_command,
+    get_system_info,
+    take_screenshot,
+    search_web,
+    play_youtube,
+    get_weather,
+    control_volume,
+    get_ip,
+    get_date,
+    create_file,
+    read_file,
+    list_files,
+)
+from aura.action.brd_generator import generate_brd
 
 
 class Tool:
@@ -65,10 +82,27 @@ class ToolRegistry:
         self.register(
             "run_command", "Run a shell command and return output", self._run_command
         )
-        self.register("get_weather", "Get weather for a city", self._get_weather)
+        self.register("get_weather", "Get weather for a city", get_weather)
         self.register("calculator", "Calculate a math expression", self._calculator)
         self.register("wikipedia", "Get summary from Wikipedia", self._wikipedia)
         self.register("news", "Get latest news by category", self._news)
+
+        # System control (from Mark-XXX)
+        self.register(
+            "open_app", "Open an application (chrome, spotify, vscode, etc)", open_app
+        )
+        self.register("open_url", "Open a URL in browser", open_url)
+        self.register("run_shell", "Run a shell command", run_command)
+        self.register("system_info", "Get system information", get_system_info)
+        self.register("screenshot", "Take a screenshot", take_screenshot)
+        self.register("web_search", "Search the web", search_web)
+        self.register("youtube", "Play YouTube video", play_youtube)
+        self.register("volume", "Control volume (up, down, mute)", control_volume)
+        self.register("get_ip", "Get public IP address", get_ip)
+        self.register("get_date", "Get current date/time", get_date)
+        self.register("create_file", "Create a file", create_file)
+        self.register("read_file", "Read a file", read_file)
+        self.register("list_files", "List files in directory", list_files)
 
     def _web_search(self, query: str, num_results: int = 5) -> dict:
         try:
@@ -104,7 +138,7 @@ class ToolRegistry:
             return {
                 "success": True,
                 "status": response.status_code,
-                "content": response.text[:5000],
+                "content": response.text[:10000],
                 "headers": dict(response.headers),
             }
         except Exception as e:

@@ -18,6 +18,12 @@ LOCAL_MODEL_URL = "http://localhost:11434"
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
+# OpenRouter API (for cloud LLM)
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+
+# Model provider preference: "local", "openrouter", "anthropic", "openai"
+MODEL_PROVIDER = os.getenv("MODEL_PROVIDER", "local")
+
 WORKING_MEMORY_MAX_ITEMS = 50
 EPISODIC_MEMORY_MAX_DAYS = 90
 LONG_TERM_TTL_DAYS = -1

@@ -43,3 +43,8 @@ htmlcov/
 
 # AURA data
 aura/data/
+# Temp 
+jarvis_temp/
+markxxx_temp/
+*backup.py
+
