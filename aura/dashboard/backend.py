@@ -1,14 +1,30 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import asyncio
 import json
 import threading
-import whisper
 import os
 
+try:
+    import whisper
+
+    _WHISPER_OK = True
+except ImportError:
+    _WHISPER_OK = False
+    whisper = None
+
 app = FastAPI(title="AURA Interface")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:8080", "http://127.0.0.1:8080"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Base directory
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -24,7 +40,7 @@ _whisper_model = None
 
 def get_whisper_model():
     global _whisper_model
-    if _whisper_model is None:
+    if _whisper_model is None and _WHISPER_OK:
         _whisper_model = whisper.load_model("base")
     return _whisper_model
 

@@ -7,28 +7,17 @@ import json
 import sys
 from pathlib import Path
 
-
-def get_base_dir() -> Path:
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).parent
-    return Path(__file__).resolve().parent.parent
-
-BASE_DIR        = get_base_dir()
-API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
-
-def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+from aura.action._api_config import get_gemini_key
 
 
 def _gemini_search(query: str) -> str:
     from google import genai
 
-    client = genai.Client(api_key=_get_api_key())
+    client = genai.Client(api_key=get_gemini_key())
     response = client.models.generate_content(
         model="gemini-2.5-flash-lite",
         contents=query,
-        config={"tools": [{"google_search": {}}]}
+        config={"tools": [{"google_search": {}}]},
     )
     text = ""
     for part in response.candidates[0].content.parts:
@@ -39,7 +28,6 @@ def _gemini_search(query: str) -> str:
     return text.strip()
 
 
-
 def _ddg_search(query: str, max_results: int = 6) -> list:
     try:
         from ddgs import DDGS
@@ -48,21 +36,27 @@ def _ddg_search(query: str, max_results: int = 6) -> list:
     results = []
     with DDGS() as ddgs:
         for r in ddgs.text(query, max_results=max_results):
-            results.append({
-                "title":   r.get("title", ""),
-                "snippet": r.get("body", ""),
-                "url":     r.get("href", ""),
-            })
+            results.append(
+                {
+                    "title": r.get("title", ""),
+                    "snippet": r.get("body", ""),
+                    "url": r.get("href", ""),
+                }
+            )
     return results
+
 
 def _format_ddg(query: str, results: list) -> str:
     if not results:
         return f"No results found for: {query}"
     lines = [f"Search results for: {query}\n"]
     for i, r in enumerate(results, 1):
-        if r.get("title"):   lines.append(f"{i}. {r['title']}")
-        if r.get("snippet"): lines.append(f"   {r['snippet']}")
-        if r.get("url"):     lines.append(f"   {r['url']}")
+        if r.get("title"):
+            lines.append(f"{i}. {r['title']}")
+        if r.get("snippet"):
+            lines.append(f"   {r['snippet']}")
+        if r.get("url"):
+            lines.append(f"   {r['url']}")
         lines.append("")
     return "\n".join(lines).strip()
 
@@ -79,7 +73,7 @@ def _compare(items: list, aspect: str) -> str:
                 all_results[item] = _ddg_search(f"{item} {aspect}", max_results=3)
             except Exception:
                 all_results[item] = []
-        lines = [f"Comparison — {aspect.upper()}\n{'─'*40}"]
+        lines = [f"Comparison — {aspect.upper()}\n{'─' * 40}"]
         for item in items:
             lines.append(f"\n▸ {item}")
             for r in all_results.get(item, [])[:2]:
@@ -89,15 +83,15 @@ def _compare(items: list, aspect: str) -> str:
 
 
 def web_search(
-    parameters:     dict,
+    parameters: dict,
     response=None,
     player=None,
     session_memory=None,
 ) -> str:
     params = parameters or {}
-    query  = params.get("query", "").strip()
-    mode   = params.get("mode", "search").lower()
-    items  = params.get("items", [])
+    query = params.get("query", "").strip()
+    mode = params.get("mode", "search").lower()
+    items = params.get("items", [])
     aspect = params.get("aspect", "general")
 
     if not query and not items:
@@ -126,7 +120,7 @@ def web_search(
         except Exception as e:
             print(f"[WebSearch] ⚠️ Gemini failed ({e}), trying DDG...")
             results = _ddg_search(query)
-            result  = _format_ddg(query, results)
+            result = _format_ddg(query, results)
             print(f"[WebSearch] ✅ DDG: {len(results)} results.")
             return result
 

@@ -22,25 +22,20 @@ from PIL import ImageGrab
 try:
     import requests
     from bs4 import BeautifulSoup
+
     _REQUESTS_OK = True
 except ImportError:
     _REQUESTS_OK = False
 
 try:
     from youtube_transcript_api import YouTubeTranscriptApi
+
     _TRANSCRIPT_OK = True
 except ImportError:
     _TRANSCRIPT_OK = False
 
 
-def get_base_dir() -> Path:
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).parent
-    return Path(__file__).resolve().parent.parent
-
-
-BASE_DIR        = get_base_dir()
-API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
+from aura.action._api_config import get_gemini_key
 
 HEADERS = {
     "User-Agent": (
@@ -50,11 +45,6 @@ HEADERS = {
     ),
     "Accept-Language": "en-US,en;q=0.9",
 }
-
-
-def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
 
 
 def open_browser():
@@ -70,19 +60,19 @@ def find_video_thumbnails() -> list[tuple[int, int]]:
 
     try:
         screenshot = ImageGrab.grab()
-        img        = np.array(screenshot)
+        img = np.array(screenshot)
         screen_h, screen_w = img.shape[:2]
 
-        roi_top    = int(screen_h * 0.10)
+        roi_top = int(screen_h * 0.10)
         roi_bottom = int(screen_h * 0.75)
-        roi_left   = int(screen_w * 0.20)
-        roi_right  = int(screen_w * 0.80)
-        roi        = img[roi_top:roi_bottom, roi_left:roi_right]
+        roi_left = int(screen_w * 0.20)
+        roi_right = int(screen_w * 0.80)
+        roi = img[roi_top:roi_bottom, roi_left:roi_right]
 
-        gray   = cv2.cvtColor(roi, cv2.COLOR_RGB2GRAY)
-        edges  = cv2.Canny(gray, 30, 100)
+        gray = cv2.cvtColor(roi, cv2.COLOR_RGB2GRAY)
+        edges = cv2.Canny(gray, 30, 100)
         kernel = np.ones((3, 3), np.uint8)
-        edges  = cv2.dilate(edges, kernel, iterations=2)
+        edges = cv2.dilate(edges, kernel, iterations=2)
 
         contours, _ = cv2.findContours(
             edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
@@ -91,7 +81,7 @@ def find_video_thumbnails() -> list[tuple[int, int]]:
         candidates = []
         for c in contours:
             x, y, w, h = cv2.boundingRect(c)
-            area  = w * h
+            area = w * h
             ratio = w / h if h > 0 else 0
             if area < 15000:
                 continue
@@ -130,16 +120,12 @@ def _ask_for_url(prompt_text: str = "YouTube video URL:") -> str | None:
         import tkinter as tk
         from tkinter import simpledialog
 
-        root = tk._default_root 
+        root = tk._default_root
         if root is None:
             root = tk.Tk()
             root.withdraw()
 
-        url = simpledialog.askstring(
-            "J.A.R.V.I.S",
-            prompt_text,
-            parent=root
-        )
+        url = simpledialog.askstring("J.A.R.V.I.S", prompt_text, parent=root)
         return url.strip() if url else None
     except Exception as e:
         print(f"[YouTube] ⚠️ URL dialog failed: {e}")
@@ -148,6 +134,7 @@ def _ask_for_url(prompt_text: str = "YouTube video URL:") -> str | None:
 
 def _is_valid_youtube_url(url: str) -> bool:
     return bool(re.search(r"(youtube\.com|youtu\.be)", url or ""))
+
 
 def _get_transcript(video_id: str) -> str | None:
 
@@ -169,7 +156,20 @@ def _get_transcript(video_id: str) -> str | None:
         if transcript is None:
             try:
                 transcript = transcript_list.find_generated_transcript(
-                    ["en", "tr", "de", "fr", "es", "it", "pt", "ru", "ja", "ko", "ar", "zh"]
+                    [
+                        "en",
+                        "tr",
+                        "de",
+                        "fr",
+                        "es",
+                        "it",
+                        "pt",
+                        "ru",
+                        "ja",
+                        "ko",
+                        "ar",
+                        "zh",
+                    ]
                 )
             except Exception:
                 for t in transcript_list:
@@ -180,7 +180,7 @@ def _get_transcript(video_id: str) -> str | None:
             return None
 
         fetched = transcript.fetch()
-        text    = " ".join(entry["text"] for entry in fetched)
+        text = " ".join(entry["text"] for entry in fetched)
         print(f"[YouTube] 📝 Transcript: {len(text)} chars")
         return text
 
@@ -188,10 +188,11 @@ def _get_transcript(video_id: str) -> str | None:
         print(f"[YouTube] ⚠️ Transcript fetch failed: {e}")
         return None
 
+
 def _summarize_with_gemini(transcript: str, video_url: str) -> str:
     import google.generativeai as genai
 
-    genai.configure(api_key=_get_api_key())
+    genai.configure(api_key=get_gemini_key())
     model = genai.GenerativeModel(
         model_name="gemini-3.0-flash",
         system_instruction=(
@@ -200,7 +201,7 @@ def _summarize_with_gemini(transcript: str, video_url: str) -> str:
             "Structure: 1-sentence overview, then 3-5 key points. "
             "Be direct. Address the user as 'sir'. "
             "Match the language of the transcript."
-        )
+        ),
     )
 
     max_chars = 80000
@@ -211,14 +212,15 @@ def _summarize_with_gemini(transcript: str, video_url: str) -> str:
     )
     return response.text.strip()
 
+
 def _save_to_notepad(content: str, video_url: str) -> str:
     import subprocess
     import platform
     from datetime import datetime
 
-    ts       = datetime.now().strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"youtube_summary_{ts}.txt"
-    desktop  = Path.home() / "Desktop"
+    desktop = Path.home() / "Desktop"
     desktop.mkdir(parents=True, exist_ok=True)
     filepath = desktop / filename
 
@@ -233,17 +235,18 @@ def _save_to_notepad(content: str, video_url: str) -> str:
     filepath.write_text(header + content, encoding="utf-8")
     print(f"[YouTube] 💾 Summary saved: {filepath}")
 
-    system  = platform.system()
+    system = platform.system()
     open_fn = {
         "Windows": lambda p: subprocess.Popen(["notepad.exe", str(p)]),
-        "Darwin":  lambda p: subprocess.Popen(["open", "-t", str(p)]),
-        "Linux":   lambda p: subprocess.Popen(["xdg-open", str(p)]),
+        "Darwin": lambda p: subprocess.Popen(["open", "-t", str(p)]),
+        "Linux": lambda p: subprocess.Popen(["xdg-open", str(p)]),
     }
     opener = open_fn.get(system)
     if opener:
         opener(filepath)
 
     return str(filepath)
+
 
 def _scrape_video_info(video_id: str) -> dict:
 
@@ -252,7 +255,7 @@ def _scrape_video_info(video_id: str) -> dict:
 
     url = f"https://www.youtube.com/watch?v={video_id}"
     try:
-        r    = requests.get(url, headers=HEADERS, timeout=12)
+        r = requests.get(url, headers=HEADERS, timeout=12)
         html = r.text
 
         info = {}
@@ -285,6 +288,7 @@ def _scrape_video_info(video_id: str) -> dict:
         print(f"[YouTube] ⚠️ Info scrape failed: {e}")
         return {}
 
+
 def _scrape_trending(region: str = "TR", max_results: int = 8) -> list[dict]:
 
     if not _REQUESTS_OK:
@@ -292,20 +296,22 @@ def _scrape_trending(region: str = "TR", max_results: int = 8) -> list[dict]:
 
     url = f"https://www.youtube.com/feed/trending?gl={region.upper()}"
     try:
-        r    = requests.get(url, headers=HEADERS, timeout=12)
+        r = requests.get(url, headers=HEADERS, timeout=12)
         html = r.text
 
-        titles   = re.findall(r'"title":\{"runs":\[\{"text":"([^"]+)"\}\]', html)
+        titles = re.findall(r'"title":\{"runs":\[\{"text":"([^"]+)"\}\]', html)
         channels = re.findall(r'"ownerText":\{"runs":\[\{"text":"([^"]+)"', html)
 
         results = []
-        seen    = set()
+        seen = set()
         for i, title in enumerate(titles):
             if title in seen or len(title) < 5:
                 continue
             seen.add(title)
             channel = channels[i] if i < len(channels) else "Unknown"
-            results.append({"rank": len(results) + 1, "title": title, "channel": channel})
+            results.append(
+                {"rank": len(results) + 1, "title": title, "channel": channel}
+            )
             if len(results) >= max_results:
                 break
 
@@ -314,6 +320,7 @@ def _scrape_trending(region: str = "TR", max_results: int = 8) -> list[dict]:
     except Exception as e:
         print(f"[YouTube] ⚠️ Trending scrape failed: {e}")
         return []
+
 
 def _handle_play(parameters: dict, player) -> str:
     query = parameters.get("query", "").strip()
@@ -457,8 +464,7 @@ def _handle_trending(parameters: dict, player, speak) -> str:
     if speak:
         top3 = trending[:3]
         spoken = "Here are the top trending videos, sir. " + ". ".join(
-            f"Number {v['rank']}: {v['title']} by {v['channel']}"
-            for v in top3
+            f"Number {v['rank']}: {v['title']} by {v['channel']}" for v in top3
         )
         speak(spoken)
 
@@ -466,14 +472,15 @@ def _handle_trending(parameters: dict, player, speak) -> str:
 
 
 _ACTION_MAP = {
-    "play":      _handle_play,
+    "play": _handle_play,
     "summarize": _handle_summarize,
-    "get_info":  _handle_get_info,
-    "trending":  _handle_trending,
+    "get_info": _handle_get_info,
+    "trending": _handle_trending,
 }
 
+
 def youtube_video(
-    parameters:     dict,
+    parameters: dict,
     response=None,
     player=None,
     session_memory=None,

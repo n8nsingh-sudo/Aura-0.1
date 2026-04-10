@@ -1,6 +1,7 @@
 from typing import Callable, Any
 import httpx
 import json
+import os
 import subprocess
 import urllib.parse
 from pathlib import Path
@@ -21,6 +22,16 @@ from aura.action.system_controller import (
     list_files,
 )
 from aura.action.brd_generator import generate_brd
+from aura.skills import create_skills_registry
+
+_skills_registry = None
+
+
+def get_skills():
+    global _skills_registry
+    if _skills_registry is None:
+        _skills_registry = create_skills_registry()
+    return _skills_registry
 
 
 class Tool:
@@ -37,6 +48,32 @@ class ToolRegistry:
     def __init__(self):
         self.tools: dict[str, Tool] = {}
         self._register_default_tools()
+        self._register_skills()
+
+    def _register_skills(self):
+        skills = get_skills()
+
+        self.register(
+            "list_skills",
+            "List all available skills",
+            lambda **_: "\n".join(
+                [f"{s['name']}: {s['description']}" for s in skills.list()]
+            ),
+        )
+
+        for s in skills.list():
+            name = s["name"]
+
+            def make_handler(skill_name):
+                def handler(**kwargs):
+                    skill = skills.get(skill_name)
+                    if not skill:
+                        return f"Skill {skill_name} not found"
+                    return skill.run(skill_name, kwargs)
+
+                return handler
+
+            self.register(f"skill_{name}", f"Aura skill: {name}", make_handler(name))
 
     def register(self, name: str, description: str, function: Callable):
         self.tools[name] = Tool(name, description, function)
@@ -228,7 +265,10 @@ class ToolRegistry:
 
     def _news(self, category: str = "general") -> dict:
         try:
-            url = f"https://newsdata.io/api/1/news?apikey=demo&q={category}&language=en"
+            api_key = os.getenv("NEWSDATA_API_KEY", "")
+            if not api_key:
+                return {"success": False, "error": "NEWSDATA_API_KEY not set"}
+            url = f"https://newsdata.io/api/1/news?apikey={api_key}&q={category}&language=en"
             response = httpx.get(url, timeout=10)
             data = response.json()
 
@@ -247,10 +287,48 @@ class ToolRegistry:
             return {"success": False, "error": str(e)}
 
 
+def register_skills(registry: "ToolRegistry"):
+    """Register skills as tools."""
+    skills = get_skills()
+    registry.register(
+        "list_skills",
+        "List all available skills",
+        lambda: "\n".join([f"{s['name']}: {s['description']}" for s in skills.list()]),
+    )
+    registry.register(
+        "skill_weather",
+        "Get weather for a city",
+        lambda city: (
+            skills.get("weather").run("weather", {"city": city})
+            if skills.get("weather")
+            else "Not found"
+        ),
+    )
+    registry.register(
+        "skill_system",
+        "Get system information",
+        lambda: (
+            skills.get("system").run("sysinfo", {})
+            if skills.get("system")
+            else "Not found"
+        ),
+    )
+    registry.register(
+        "skill_github",
+        "GitHub operations",
+        lambda action="", repo="", number="": (
+            skills.get("github").run(
+                action, {"action": action, "repo": repo, "number": number}
+            )
+            if skills.get("github")
+            else "Not found"
+        ),
+    )
+
+
 if __name__ == "__main__":
     tools = ToolRegistry()
+    register_skills(tools)
     print(tools.list_tools())
-    print("\n--- Test Web Search ---")
-    print(tools.call("web_search", query="Python AI agents"))
-    print("\n--- Test Calculator ---")
-    print(tools.call("calculator", expression="2+2*3"))
+    print("\n--- Test Weather Skill ---")
+    print(tools.call("skill_weather", city="London"))
