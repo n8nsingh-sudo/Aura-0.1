@@ -1,13 +1,28 @@
-import whisper_mic
 import threading
 import asyncio
-import edge_tts
 import tempfile
 import os
 import platform
 import subprocess
 import signal
 import re
+
+try:
+    import whisper_mic
+
+    _WHISPER_MIC_OK = True
+except ImportError:
+    _WHISPER_MIC_OK = False
+    whisper_mic = None
+
+try:
+    import edge_tts
+
+    _EDGE_TTS_OK = True
+except ImportError:
+    _EDGE_TTS_OK = False
+    edge_tts = None
+
 from aura import config
 
 

@@ -1,7 +1,14 @@
 import httpx
-from bs4 import BeautifulSoup
 from aura.memory.fabric import MemoryFabric
 from aura.learning.embedder import Embedder
+
+try:
+    from bs4 import BeautifulSoup
+
+    _BEAUTIFULSOUP_OK = True
+except ImportError:
+    _BEAUTIFULSOUP_OK = False
+    BeautifulSoup = None
 
 
 class WebScraper:
@@ -24,6 +31,9 @@ class WebScraper:
             response.raise_for_status()
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+        if not _BEAUTIFULSOUP_OK:
+            return {"success": False, "error": "beautifulsoup4 not installed"}
 
         soup = BeautifulSoup(response.text, "html.parser")
 

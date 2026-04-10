@@ -4,5 +4,10 @@ httpx
 whisper
 edge-tts
 beautifulsoup4
+lxml
 wikipedia
 pygame
+websockets
+sentence-transformers
+chromadb
+psutil

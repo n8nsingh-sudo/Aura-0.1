@@ -13,13 +13,21 @@ _voice = None
 _aura_loop = None
 _active_connections = []
 
-import whisper
+try:
+    import whisper
+
+    _WHISPER_OK = True
+except ImportError:
+    _WHISPER_OK = False
+    whisper = None
 
 _whisper_model = None
 
 
 def get_whisper_model():
     global _whisper_model
+    if not _WHISPER_OK:
+        return None
     if _whisper_model is None:
         _whisper_model = whisper.load_model("base")
     return _whisper_model
